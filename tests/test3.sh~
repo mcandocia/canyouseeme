@@ -1,0 +1,9 @@
+#!/bin/bash
+
+echo "ENCRYPTION/DECRYPTION OF REGULAR FILE WITH EXPENSIVE HASHING"
+
+echo "ENCRYPTION"
+python enc.py samples/message.txt --output-filename=modified_samples/encrypted_message --heavy --mode=encrypt
+
+echo "DECRYPTION"
+python enc.py samples/message.txt --output-filename=modified_samples/encrypted_message --heavy --mode=decrypt

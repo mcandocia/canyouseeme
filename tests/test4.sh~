@@ -1,0 +1,5 @@
+#!/bin/bash
+
+echo "ENCODE AND DECODE DATA TO IMAGE"
+
+python3 bti.py samples/kitty_in_a_box.jpg modified_samples/obscured_kitty_in_a_box.png --color-mode=RGB --width=360 --height=360 --padding=random
