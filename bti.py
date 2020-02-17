@@ -38,12 +38,6 @@ def get_options():
         action='store_true',
         help='Convert back to raw data'
     )
-    parser.add_argument(
-        '--reverse-input-output',
-        '--rio',
-        action='store_true',
-        help='Reverse meaning of first two arguments'
-    )
 
     parser.add_argument(
         '--padding',
@@ -89,11 +83,6 @@ def get_options():
                     'than one image is specified.'
                 )
 
-    if options['reverse_input_output']:
-        options['input_filename'], options['output_filename'] = (
-            options['output_filename'],
-            options['input_filename']
-        )
 
     if options['padding'] != 'random':
         try:
@@ -304,7 +293,7 @@ def composite_image(r,g,b,a=None, options=None):
         raise ValueError('Must supply value to "options"')
     is_literal = (
         options['rgb_literal'] or
-        options['hide_data_in_alpha_channel']
+        options['hide_data_as_alpha']
     )
     raw_r = binary_to_image(r, dimensions=(options['width'], options['height']), return_numpy=True, is_literal=is_literal, padding=options['padding'])
     raw_g = binary_to_image(g, dimensions=(options['width'], options['height']), return_numpy=True, is_literal=is_literal, padding=options['padding'])
