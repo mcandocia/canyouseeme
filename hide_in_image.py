@@ -80,7 +80,7 @@ def get_options():
         options['mode'] = 'decrypt'
 
     if len(options['input_filename']) == 1:
-        options['input_filename'] = options['input_filename'][0]
+        options['input_filename'] = options['input_filename']
         options['n_inputs'] = 1
 
     else:
@@ -170,7 +170,7 @@ def encryption(options):
     if len(options_copy['input_filename']) == 1:
         options_copy['input_filename'] = options_copy[
             'input_filename'
-        ][0]
+        ]
     bti_main(options_copy)
 
 def decryption(options):
