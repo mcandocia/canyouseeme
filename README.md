@@ -20,6 +20,8 @@ This script converts data into PNG format (grayscale, RGB, or RGBA) and can conv
 
 You can also hide data as the alpha channel when providing an RGB image as first input and the data as second input when specifying `--hide-data-as-alpha`.
 
+You can also hide files in other channels or multiple channels. After specifying the first file (the "mask") you can add up to 3 additional files in the red, blue, green, and/or alpha channels.
+
 See tests 4-8 in the `tests/` directory for examples using this script.
 
 # enc.py
@@ -38,4 +40,5 @@ Note that you can only encrypt/decrypt files when you use the same exact hashing
 
 This script combines `bti.py` and `enc.py` to both hash data and then place that raw data in an image, was well as perform the reverse operations.
 
-See tests 1-2 in the `tests/` directory for examples of how this is used.
+See tests 1-2 in the `tests/` directory for examples of how this is used, as well as 9-10.
+
