@@ -61,6 +61,14 @@ def get_options():
     )
 
     parser.add_argument(
+        '--hide-data-in-channels',
+        nargs='*',
+        default='',
+        choices=['','red','blue','green',],
+        help='Channel to hide data in if first image is RGB or RGBA'
+    )    
+
+    parser.add_argument(
         '--rgb-literal',
         action='store_true',
         help='If grayscale PNG images are loaded in the first 3 slots, '
@@ -71,7 +79,8 @@ def get_options():
     options = vars(args)
     options['is_literal'] = (
         options['rgb_literal'] or
-        options['hide_data_as_alpha']
+        options['hide_data_as_alpha'] or
+        options['hide_data_in_channels']
     )
     
     if options['mode'] == 'decrypt':
@@ -87,7 +96,7 @@ def get_options():
         options['n_inputs'] = len(options['input_filename'])
         if not options['deconvert']:
             try:
-                assert (options['width'] is not None and options['height'] is not None) or options['rgb_literal'] or options['hide_data_as_alpha']
+                assert (options['width'] is not None and options['height'] is not None) or options['rgb_literal'] or options['hide_data_as_alpha'] or options['hide_data_in_channels']
             except AssertionError:
                 raise ValueError(
                     'Must specify both height and width when mode is not deconvert when more '

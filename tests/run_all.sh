@@ -17,5 +17,9 @@ echo "TEST 7"
 tests/test7.sh
 echo "TEST 8"
 tests/test8.sh
+echo "TEST 9"
+tests/test9.sh
+echo "TEST 10"
+tests/test10.sh
 
 echo "DONE WITH TESTS"

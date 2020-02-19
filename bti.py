@@ -60,6 +60,14 @@ def get_options():
         'second. The first argument must be a valid image'
     )
 
+    parser.add_argument(
+        '--hide-data-in-channels',
+        nargs='*',
+        default='',
+        choices=['','red','blue','green',],
+        help='Channel to hide data in if first image is RGB or RGBA'
+    )
+
     args = parser.parse_args()
     options = vars(args)       
     if options['rgb_literal'] and len(options['input_filename']) != 4:
@@ -76,7 +84,7 @@ def get_options():
         options['n_inputs'] = len(options['input_filename'])
         if not options['deconvert']:
             try:
-                assert (options['width'] is not None and options['height'] is not None) or options['rgb_literal'] or options['hide_data_as_alpha']
+                assert (options['width'] is not None and options['height'] is not None) or options['rgb_literal'] or options['hide_data_as_alpha'] or options['hide_data_in_channels']
             except AssertionError:
                 raise ValueError(
                     'Must specify both height and width when mode is not deconvert when more '
@@ -139,7 +147,7 @@ def convert(options):
         print('Wrote %a' % options['output_filename'])
     else:
         raw_arr = ['' for _ in range(options['n_inputs'])]
-        if options['hide_data_as_alpha']:
+        if options['hide_data_as_alpha'] or options['hide_data_in_channels']:
             new_input_filenames, dims = split_image(
                 options['input_filename'][0],
                 options['input_filename'][0],
@@ -151,19 +159,87 @@ def convert(options):
             options['width'] = dims[1]
             options['height'] = dims[0]
             # redundancy
-            options['n_inputs'] = 4
+            if options['hide_data_as_alpha']:
+                options['n_inputs'] = 4
+            elif 'alpha' in options['hide_data_in_channels'] or len(new_input_filenames) == 4:
+                options['n_inputs'] = 4
+            else:
+                options['n_inputs'] = 3
+                
             options['rgb_literal'] = True
-            options['input_filename'] = (
-                new_input_filenames +
-                [options['input_filename'][1]]
-            )
+
+            if options['hide_data_as_alpha']:
+                options['input_filename'] = (
+                    new_input_filenames +
+                    [options['input_filename'][1]]
+                )
+            else:
+                # r g b a
+                # red blue green alpha
+                # determine map, order is not important for these lists
+                data_positions = [
+                    ['red','green','blue','alpha'].index(channel)
+                    for channel in options['hide_data_in_channels']
+                ]
+                remaining_positions = [
+                    i for i in range(options['n_inputs'])
+                    if i not in data_positions
+                ]
+                #print(data_positions)
+                #print(remaining_positions)
+                # now use above to sort in order the input filenames
+                filenames = ['' for _ in range(options['n_inputs'])]
+                for i in range(options['n_inputs']):
+                    if i in remaining_positions:
+                        filenames[i] = new_input_filenames[i]
+                    elif i in data_positions:
+                        # offset by 1 since first position is the mask image
+                        filenames[i] = options['input_filename'][data_positions.index(i)+1]
+                    else:
+                        print(i)
+                        print(data_positions)
+                        print(options['input_filename'])
+                        print(filenames)
+                        raise RuntimeError('Invalid index value encountered somehow')
+
+                options['input_filename'] = filenames
+                
+                
             raw_arr = [
                 '' for _ in range(options['n_inputs'])
             ]
 
-            
+        #print('INPUT FN')
+        #print(options['input_filename'])
         for i, fn in enumerate(options['input_filename']):
-            if options.get('rgb_literal') and i < 3:
+            if options['hide_data_in_channels']:
+                # first image uses remaining channels
+                # then each image is assigned its corresponding channel
+                if i in data_positions:
+                    with open(fn, 'rb') as f:
+                        raw_data = f.read()
+                        raw_arr[i] = raw_data                    
+                elif i in remaining_positions:
+                    literal_img = Image.open(fn)
+                    if literal_img.mode != 'L':
+                        literal_img = literal_img.convert(
+                            mode='L'
+                        )
+                    np_arr = np.asarray(literal_img)
+                    dims = np_arr.shape[:2]
+                    options['height'] = dims[0]
+                    options['width'] = dims[1]
+                    raw_arr[i] = bytes(
+                        np_arr.flatten().tolist()
+                    )
+                else:
+                    raise RuntimeError(
+                        'Somehow have invalid index for hiding data in channels. '
+                        'Need to bugfix this.'
+                    )
+
+                
+            elif options.get('rgb_literal') and i < 3:
                 literal_img = Image.open(fn)
                 if literal_img.mode != 'L':
                     literal_img = literal_img.convert(
@@ -181,6 +257,8 @@ def convert(options):
                 with open(fn, 'rb') as f:
                     raw_data = f.read()
                     raw_arr[i] = raw_data
+        # rearrange channels if 'hide_data_in_channel'
+            
         c_img = composite_image(*raw_arr, options=options)
         c_img.save(
             options['output_filename'],
@@ -293,17 +371,29 @@ def composite_image(r,g,b,a=None, options=None):
         raise ValueError('Must supply value to "options"')
     is_literal = (
         options['rgb_literal'] or
-        options['hide_data_as_alpha']
+        options['hide_data_as_alpha'] or
+        options['hide_data_in_channels']
     )
-    raw_r = binary_to_image(r, dimensions=(options['width'], options['height']), return_numpy=True, is_literal=is_literal, padding=options['padding'])
-    raw_g = binary_to_image(g, dimensions=(options['width'], options['height']), return_numpy=True, is_literal=is_literal, padding=options['padding'])
-    raw_b = binary_to_image(b, dimensions=(options['width'], options['height']), return_numpy=True, is_literal=is_literal, padding=options['padding'])
+
+    hidden_channels = options['hide_data_in_channels']
+    
+    base_literal = (options['rgb_literal'] or options['hide_data_as_alpha'])
+
+    literal_red = base_literal and 'red' not in hidden_channels
+    literal_green = base_literal and 'green' not in hidden_channels
+    literal_blue = base_literal and 'blue' not in hidden_channels
+    literal_alpha = base_literal and 'alpha' not in hidden_channels
+    
+    raw_r = binary_to_image(r, dimensions=(options['width'], options['height']), return_numpy=True, is_literal=literal_red, padding=options['padding'])
+    raw_g = binary_to_image(g, dimensions=(options['width'], options['height']), return_numpy=True, is_literal=literal_green, padding=options['padding'])
+    raw_b = binary_to_image(b, dimensions=(options['width'], options['height']), return_numpy=True, is_literal=literal_blue, padding=options['padding'])
     if a is not None:
         raw_a = binary_to_image(
             a,
             dimensions=(options['width'], options['height']),
             return_numpy=True,
-            padding=options['padding']
+            padding=options['padding'],
+            is_literal = literal_alpha
         )
         arr = [raw_r, raw_g, raw_b, raw_a]
         mode = 'RGBA'
@@ -328,7 +418,8 @@ def decompose_image(rgba, *filenames, options={}):
         assert (
             n_images == numpy_raw.shape[2] or
             options.get('rgb_literal') or
-            options.get('hide_data_as_alpha')
+            options.get('hide_data_as_alpha') or
+            options.get('hide_data_in_channels')
         )
     except AssertionError:
         raise ValueError('Need to have filenames and number of layers identical')
@@ -342,8 +433,17 @@ def decompose_image(rgba, *filenames, options={}):
     n_layers = numpy_raw.shape[2]
     literal_mode = (
         options.get('rgb_literal') or
-        options.get('hide_data_as_alpha')
+        options.get('hide_data_as_alpha') or
+        options.get('hide_data_in_channels')
     )
+    if options['hide_data_in_channels']:
+        # rearrange filenames
+        # this is the numpy slice (3rd index) that each filename will take
+        filename_positions = [
+            ['red','green','blue','alpha'].index(channel)
+            for channel in options['hide_data_in_channels']
+        ]
+        #print(options['hide_data_in_channels'])
 
     if not literal_mode:
         for j, arr, fn in zip(
@@ -355,10 +455,20 @@ def decompose_image(rgba, *filenames, options={}):
                 filenames
         ):
             if j < 3 and (
-
+                    True # not sure what I was putting here...
             ):
                 # these modes don't need to rewrite output
                 continue
+            raw_data = image_to_binary(arr)
+            with open(fn, 'wb') as f:
+                f.write(raw_data)
+                print('Wrote %a' % fn)
+    elif options['hide_data_in_channels']:
+        for i, pos in enumerate(filename_positions):
+            #print((i, pos))
+            fn = options['input_filename'][i+1]
+            #print(fn)
+            arr = numpy_raw[:,:,pos]
             raw_data = image_to_binary(arr)
             with open(fn, 'wb') as f:
                 f.write(raw_data)
