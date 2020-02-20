@@ -3,10 +3,17 @@ from uuid import uuid4
 import os
 import argparse
 from getpass import getpass
+import re
 try:
     from Cryptodome.Cipher import AES
 except ImportError:
     from Crypto.Cipher import AES
+
+try:
+    import gnupg
+except ImportError:
+    print('cannot use gpg: package "gnugp" not found')
+    
 
 def get_options():
     parser = argparse.ArgumentParser(
@@ -23,6 +30,14 @@ def get_options():
     parser.add_argument('--salt', default='caMERA5@%'*20, help='salt to use for password hashing')
     parser.add_argument('--heavy', action='store_true', help='Makes the algorithm more computationally expensive by choosing a fixed set of parameters.')
     parser.add_argument('--password', required=False, default='',help='Supplied password (not recommended)')
+
+    gpg_parser = parser.add_argument_group('gpg')
+    gpg_parser.add_argument('--gpg-home', default='~/.gnupg', help='Home for GPG')
+    gpg_parser.add_argument('--use-gpg', action='store_true', help='Use GPG encryption')
+    gpg_parser.add_argument('--gpg-sender', required=False, help='Email or name of sender')
+    gpg_parser.add_argument('--gpg-recipients', nargs='*', help='Recipients of message', default=[])
+    gpg_parser.add_argument('--gpg-bin', required=False, help='Location of gpg binary')
+    
 
     args = parser.parse_args()
     options = vars(args)
@@ -86,20 +101,125 @@ def main(options):
         password = getpass('password: ')
     else:
         password = options['password']
-    pwhash = hash_password(password, t=options['rounds'], p=options['p'], m=options['memory'], buflen=options['buflen'], salt=options['salt'])
-    if options['mode'] == 'encrypt':
-        encrypt_file(
-            options['filename'],
-            pwhash,
-            options['output_filename']
+    if not options['use_gpg']:
+        pwhash = hash_password(
+            password,
+            t=options['rounds'],
+            p=options['p'],
+            m=options['memory'],
+            buflen=options['buflen'],
+            salt=options['salt'],
         )
+        if options['mode'] == 'encrypt':
+            encrypt_file(
+                options['filename'],
+                pwhash,
+                options['output_filename']
+            )
+        else:
+            decrypt_file(
+                options['filename'],
+                pwhash,
+                options['output_filename']
+            )
     else:
-        decrypt_file(
-            options['filename'],
-            pwhash,
-            options['output_filename']
-        )
+        # gpg
+        if options['mode'] == 'encrypt':
+            gpg_encrypt(
+                options['filename'],
+                password,
+                options['output_filename'],
+                options['gpg_sender'],
+                options['gpg_recipients'],
+                options['gpg_home'],
+                options['gpg_bin'],                
+            )
+        else:
+            gpg_decrypt(
+                options['filename'],
+                password,
+                options['output_filename'],
+                options['gpg_home'],
+                options['gpg_bin'],
+            )
+
+def get_fingerprints(gpg, names, secret=False):
+    if secret:
+        keys = gpg.list_keys(secret=True)
+    else:
+        keys = gpg.list_keys(secret=False)
+
+    fingerprints = []
+    for name in names:
+        fingerprints.extend(get_fingerprint(keys, name))
+
+    return fingerprints
+
+def get_fingerprint(keys, name):
+    if '@' in name:
+        entry = [
+            k for k in keys
+            if any ([uid.find(f'<{name}>') != -1 for uid in k['uids']])
+        ]
+        if len(entry) == 0:
+            raise KeyError('Could not find user with email %a' % name)
+        elif len(entry) > 2:
+            print('Found multiple keys with that email!')
+        return [e['fingerprint'] for e in entry]
+    else:
+        entry = [
+            k for k in keys
+            if any ([re.search(rf'^{name}($| \(| \<)') != -1 for uid in k['uids']])
+        ]
+        if len(entry) == 0:
+            raise KeyError('Could not find user with name %a' % name)
+        elif len(entry) > 2:
+            print('Found multiple keys with that name!')
+        return [e['fingerprint'] for e in entry]        
+            
+
+def gpg_encrypt(
+        filename,
+        password,
+        output_filename,
+        sender,
+        recipients,
+        homedir,
+        gpg_bin
+):
+    gpg = gnupg.GPG(binary=gpg_bin, homedir=homedir)
+    if sender:
+        sender = get_fingerprints(gpg, [sender], secret=True)[0]
+    else:
+        sender = None
+    recipients = get_fingerprints(gpg, recipients)
+    #print(recipients)
+    with open(filename, 'rb') as f:
+        data = f.read()
+    message = str(
+        gpg.encrypt(data, *recipients, default_key=sender, armor=True, passphrase=password)
+    )
+    with open(output_filename, 'w') as f:
+        f.write(message)
     
+
+def gpg_decrypt(
+        filename,
+        password,
+        output_filename,
+        homedir,
+        gpg_bin
+):
+    gpg = gnupg.GPG(binary=gpg_bin, homedir=homedir)
+    with open(filename, 'rb') as f:
+        gpg_data = f.read()
+    data = bytes(str(gpg.decrypt(gpg_data, passphrase=password)), 'ascii')
+    if not data:
+        raise ValueError('No data retrieved!')
+    with open(output_filename, 'wb') as f:
+        f.write(data)
+    print('Wrote %a' % output_filename)
+
 
 
 if __name__=='__main__':
