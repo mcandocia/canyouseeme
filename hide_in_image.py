@@ -33,7 +33,11 @@ def get_options():
         help='Reverse meaning of first two arguments'
     )
 
-    bti_parser.add_argument('--padding', help='character or "random". must not be 0', default='1')        
+    bti_parser.add_argument(
+        '--padding',
+        help='character or "random"/"mask". must not be 0.',
+        default='1'
+    )
 
     # encryption/decryption args
     enc_parser.add_argument(

@@ -41,7 +41,7 @@ def get_options():
 
     parser.add_argument(
         '--padding',
-        help='character or "random". must not be 0',
+        help='character or "random"/"mask". must not be 0',
         default='1'
     )
 
@@ -92,7 +92,7 @@ def get_options():
                 )
 
 
-    if options['padding'] != 'random':
+    if options['padding'] not in ['random','mask']:
         try:
             pad_val = int(options['padding'])
             assert pad_val > 0 and pad_val < 256
@@ -129,6 +129,9 @@ def deconvert(options):
 
 
 def convert(options):
+
+    masks = None
+
     if options['n_inputs'] == 1:
         with open(options['input_filename'][0], 'rb') as f:
             raw_data = f.read()
@@ -152,6 +155,27 @@ def convert(options):
                 options['input_filename'][0],
                 options['input_filename'][0],
             )
+            # create masks
+            if options['padding'] == 'mask':
+                if options['hide_data_as_alpha']:
+                    if len(new_input_filenames) == 4:
+                        masks = {'alpha': new_input_filenames[3]}
+                    else:
+                        masks = None
+                        print(
+                            'mask image is RGB, so setting padding alpha '
+                            'to 255'
+                        )
+                        options['padding'] = 255
+                elif options['hide_data_in_channels']:
+                    masks = {}
+                    for i, channel in enumerate(
+                            ['red','green','blue','alpha']
+                    ):
+                        if channel in options['hide_data_in_channels']:
+                            masks.update({channel:new_input_filenames[i]})
+                    
+            
             options['new_input_filenames'] = (
                 new_input_filenames
             )
@@ -258,8 +282,8 @@ def convert(options):
                     raw_data = f.read()
                     raw_arr[i] = raw_data
         # rearrange channels if 'hide_data_in_channel'
-            
-        c_img = composite_image(*raw_arr, options=options)
+
+        c_img = composite_image(*raw_arr, options=options, masks=masks)
         c_img.save(
             options['output_filename'],
             format='PNG'
@@ -274,7 +298,7 @@ def convert(options):
 
 # grayscale
 # mode hsv requires further transformation to be able to remap back to original
-def binary_to_image(data, dimensions=(640,None), mode='L', return_numpy=False, is_literal=False, padding='1'):
+def binary_to_image(data, dimensions=(640,None), mode='L', return_numpy=False, is_literal=False, padding='1', mask=None):
     if mode is None:
         raise ValueError('Mode cannot be None!')
     
@@ -309,7 +333,7 @@ def binary_to_image(data, dimensions=(640,None), mode='L', return_numpy=False, i
         len(raw)
     )
     if difference >= 1:
-        if padding != 'random':
+        if padding not in ['random','mask']:
             pad_val = int(padding)
             raw = np.hstack(
                 [
@@ -319,6 +343,21 @@ def binary_to_image(data, dimensions=(640,None), mode='L', return_numpy=False, i
                     )
                 ]
             )
+        elif padding == 'mask':
+            if mask is None:
+                raise ValueError(
+                    'mask is None. This should not happen in this mode'
+                )
+            # load mask
+            mask_img = Image.open(mask).convert(mode='L')
+            mask_arr = np.maximum(
+                np.uint8(1),
+                np.uint8(np.asarray(mask_img))
+            ).flatten()[1-difference:]
+
+            padding_string = np.hstack([np.uint8([0]), mask_arr])
+            #print(padding_string)[:10]
+            raw = np.hstack([raw, padding_string])
         else:
             padding_string = np.frombuffer(
                 b'\x00' + nonzero_random_int(difference-1),
@@ -366,7 +405,11 @@ def nonzero_random_int(length):
 
     return random_values
 
-def composite_image(r,g,b,a=None, options=None):
+def composite_image(r,g,b,a=None, options=None, masks=None):
+    #print(masks)
+    if masks is None:
+        masks = {}
+        
     if options is None:
         raise ValueError('Must supply value to "options"')
     is_literal = (
@@ -383,17 +426,22 @@ def composite_image(r,g,b,a=None, options=None):
     literal_green = base_literal and 'green' not in hidden_channels
     literal_blue = base_literal and 'blue' not in hidden_channels
     literal_alpha = base_literal and 'alpha' not in hidden_channels
-    
-    raw_r = binary_to_image(r, dimensions=(options['width'], options['height']), return_numpy=True, is_literal=literal_red, padding=options['padding'])
-    raw_g = binary_to_image(g, dimensions=(options['width'], options['height']), return_numpy=True, is_literal=literal_green, padding=options['padding'])
-    raw_b = binary_to_image(b, dimensions=(options['width'], options['height']), return_numpy=True, is_literal=literal_blue, padding=options['padding'])
+
+    #print('r')
+    raw_r = binary_to_image(r, dimensions=(options['width'], options['height']), return_numpy=True, is_literal=literal_red, padding=options['padding'], mask=masks.get('red'))
+    #print('g')
+    raw_g = binary_to_image(g, dimensions=(options['width'], options['height']), return_numpy=True, is_literal=literal_green, padding=options['padding'], mask=masks.get('green'))
+    #print('b')
+    raw_b = binary_to_image(b, dimensions=(options['width'], options['height']), return_numpy=True, is_literal=literal_blue, padding=options['padding'], mask=masks.get('blue'))
     if a is not None:
+        #print('a')
         raw_a = binary_to_image(
             a,
             dimensions=(options['width'], options['height']),
             return_numpy=True,
             padding=options['padding'],
-            is_literal = literal_alpha
+            is_literal = literal_alpha,
+            mask=masks.get('alpha')
         )
         arr = [raw_r, raw_g, raw_b, raw_a]
         mode = 'RGBA'
@@ -402,6 +450,8 @@ def composite_image(r,g,b,a=None, options=None):
         mode='RGB'
 
     shape = raw_r.shape
+
+    #print(raw_b[:10])
 
     full_composite = np.dstack(arr).reshape(
         (options['height'],options['width'], len(arr), )
