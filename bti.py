@@ -455,7 +455,7 @@ def decompose_image(rgba, *filenames, options={}):
                 filenames
         ):
             if j < 3 and (
-                    True # not sure what I was putting here...
+                    False # not sure what I was putting here...
             ):
                 # these modes don't need to rewrite output
                 continue
